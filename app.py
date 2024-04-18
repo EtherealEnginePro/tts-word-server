@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from pydantic import BaseModel
 # import wave
 # import contextlib
@@ -8,6 +10,20 @@ from pydantic import BaseModel
 from synthtts import TtsService
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+
+
+
+
 coqui = TtsService()
 
 

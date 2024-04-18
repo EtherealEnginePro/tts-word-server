@@ -10,7 +10,6 @@ from TTS.utils.audio import AudioProcessor
 from TTS.vocoder.models import setup_model as setup_vocoder_model
 from TTS.vocoder.utils.generic_utils import interpolate_vocoder_input
 
-
 class Synthesizer(object):
     def __init__(
         self,
@@ -327,6 +326,8 @@ class Synthesizer(object):
                     waveform = waveform.cpu()
                 if not use_gl:
                     waveform = waveform.numpy()
+
+                # reduce dimensions
                 waveform = waveform.squeeze()
 
                 # trim silence
@@ -336,18 +337,33 @@ class Synthesizer(object):
                 ):
                     waveform = trim_silence(waveform, self.tts_model.ap)
 
+                # concatenate all the parts to build up a single audio blob
                 wavs += list(waveform)
-                wavs += [0] * 10000
 
-                # compute stats
-                audio_time = len(wavs) / self.tts_config.audio["sample_rate"]
-                print(f" > Initial Audio duration: {audio_time}")
+                # pad the audio (we do not want to do this)
+                # wavs += [0] * 10000
 
-                word_boundaries_list.append(
-                    self.compute_word_boundaries(
-                        outputs["text_inputs"][0].tolist(), outputs["alignments"], audio_time
-                    )
-                )
+                # what are the word boundaries for this sentence?
+                token_idx = outputs["text_inputs"][0].tolist()
+
+                # fetch number of elements from tensors
+                alignments = outputs["alignments"]
+                if alignments.dim() == 3:
+                    alignments = alignments[0]
+                max_idx = alignments.argmax(dim=0)
+                print(f"****************** this collection has this many items = {max_idx}")
+
+
+                # visit each term in the tensor and get its duration
+                hop_length = self.tts_config.audio["hop_length"]
+                sample_rate = self.tts_config.audio["sample_rate"]
+                boundary = []
+                for idx, token in zip(max_idx, token_idx):
+                    word = self.tts_model.tokenizer.ids_to_text([token])
+                    offset = idx.item() * hop_length / sample_rate
+                    boundary.append( { "text": word, "offset": offset, "raw": idx.item() })
+
+                word_boundaries_list.append(boundary)
 
         else:
             # get the speaker embedding or speaker id for the reference wav file
@@ -441,17 +457,10 @@ class Synthesizer(object):
                     word_boundaries.append(
                         {
                             "text": wb["text"],
-                            # "item": wb["item"],
-                            # "text_offset": wb["text_offset"] + current_text_offset,
                             "offset": wb["offset"] + current_audio_offset,
-                            # "word_length": wb["word_length"],
                         }
                     )
-                # current_text_offset += word_boundaries_[-1]["text_offset"]
-                current_audio_offset += (
-                    word_boundaries_[-1]["offset"]
-                    + 10000 / self.tts_config.audio["sample_rate"]
-                )
+                current_audio_offset += word_boundaries_[-1]["offset"]
 
         return wavs, word_boundaries
 
